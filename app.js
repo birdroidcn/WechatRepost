@@ -1,44 +1,64 @@
-var http = require("http");
-var https = require("https");
-var connect = require("connect");
-var wechat = require("wechat");
-var redis = require("redis");//key-value
+var http = require('http');
+var connect = require('connect');
+var wechat = require('wechat');
+var redis = require("redis");//key-value  sys;
 var request = require('request');
-var app = connect();
+var config = require('./lib/config.js');
+//appFog 启动命令
+if(process.env.VCAP_SERVICES){
+    var env = JSON.parse(process.env.VCAP_SERVICES);
+    var redisArgs = env['redis-2.2'][0]['credentials'];
+    var client = redis.createClient(redisArgs.port,redisArgs.host);
+    client.auth(redisArgs.password);
+}else{
+    var client = redis.createClient(3770,'127.0.0.1');
+}
 
+client.on("error", function (err) {
+    console.log("Error " + err);
+});
+
+var app = connect();
 app.use(connect.query());
 app.use(connect.static(__dirname + '/assets', { maxAge: 86400000 }));
-app.use(connect.cookieParser());
-app.use('/wechat', wechat("", wechat.text(function (message, req, res) {
+app.use('/wechat', wechat(config.wxToken, wechat.text(function (message, req, res) {
     var input = (message.Content || '').trim();
-    var token = redis.get(message.FromUserName);
-    if(token == ''){
-        return res.reply("请先授权：url");
-    }
-    https.request({host : "api.weibo.com",
-                  method : "POST",
-                  path:"/2/statuses/update.json?access_token="+token+"&status="+
-                        encodeURIComponent(input)},
-                  function(response){
-                       var content = '';
-                       if(response.statusCode == 200){
-                           var result = JSON.parse(response.body);
-                           content = result.error || '发布成功！';
-                       }else{
-                           content = '网络故障，请稍后再试！';
-                       }
-                      res.reply(content);
-                  });
+    //取得用户名称相对应的token
+    client.get(message.FromUserName, function (err, reply) {
+        var token = reply.toString();
+        if(token == ''){
+            return res.reply('请先授权：https://api.weibo.com/oauth2/authorize?client_id='
+                            + config.appKey
+                            +'&response_type=code&redirect_uri='+ config.redirect + '/'
+                            + message.FromUserName);
+        }
+        //通过开放平台发布微博
+        request({
+            uri: 'https://api.weibo.com/2/statuses/update.json',
+            method : 'POST',
+            qs : {
+                access_token : token,
+                status : encodeURIComponent(input)
+            }
+        },function(error,response,body){
+            var content = '';
+            var result = JSON.parse(body);
+            content = result.error || '发布成功！';
+            res.reply(content);
+        });
+
+    });
 
     }).image(function (message, req, res) {
         console.log(message);
     }).event(function (message, req, res) {
-        console.log(message);
         if (message.Event === 'subscribe') {
             // 用户添加时候的消息
             //请求微博授权，成功后返回带有用户ID和相应token的URl
-            //存储到key-value系统中
-            res.reply('点http://open.weibo.com/'+ message.FromUserName+ '授权注册?');
+            res.reply('点击https://api.weibo.com/oauth2/authorize?client_id='+ config.appKey
+                     +'&response_type=code&redirect_uri='+ config.redirect + '/'
+                     + message.FromUserName+
+                     '授权');
         } else if (message.Event === 'unsubscribe') {
             res.reply('Bye!');
         } else {
@@ -51,16 +71,24 @@ app.use('/', function (req, res) {
     var query = req.query;
     if(path.length==2 && query.code){
         var user = path[1];
-
+        //get access_token
         request({
             uri: 'https://api.weibo.com/oauth2/access_token',
-            method : 'POST'
+            method : 'POST',
+           qs : {
+               client_id : config.appKey,
+               client_secret : config.appSecret,
+               grant_type : "authorization_code",
+               redirect_uri : config.redirect,
+               code : query.code
+           }
         },function(error,response,body){
             var content = ""
             if(!error){
                 var result = JSON.parse(body);
                 if(result.access_token){
-                    redis.set(user,result.access_token);
+                    //store user-token in redis
+                    client.set(user,result.access_token);
                     content = "授权成功！";
                 }else{
                     content = result.error;
@@ -74,7 +102,8 @@ app.use('/', function (req, res) {
 
     }else{
         res.writeHead(200);
-        res.end('hello wechat');
+        res.end('<head><meta property="wb:webmaster" content="43ff0390664d778e" />'
+               +'<title>wechat公共账号分享</title></head><body>欢迎登陆</body>');
     }
 
 });
