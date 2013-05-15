@@ -1,0 +1,13 @@
+{
+    "name": "wechatrepost",
+    "version": "0.0.1",
+    "dependencies": {
+        "connect": "*",
+        "wechat" : "*",
+        "redis"  : "*",
+        "request": "*"
+    },
+    "engines": {
+        "node": "0.8.x"
+    }
+}
