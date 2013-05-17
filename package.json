@@ -5,7 +5,8 @@
         "connect": "*",
         "wechat" : "*",
         "redis"  : "*",
-        "request": "*"
+        "request": "*" ,
+        "eventproxy" : "*"
     },
     "engines": {
         "node": "0.8.x"
