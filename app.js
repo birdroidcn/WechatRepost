@@ -1,9 +1,9 @@
 ﻿var http = require('http');
+var fs = require('fs');
 var connect = require('connect');
 var wechat = require('wechat');
 var redis = require("redis");//key-value  sys;
-var request = require('request');
-var proxy =new require('eventproxy')();
+var eventproxy = require('eventproxy');
 var config = require('./lib/config.js');
 var WXMsg = require('./lib/WXMsg');
 var weibo = require('./lib/weibo');
@@ -25,40 +25,42 @@ client.on("error", function (err) {
 var app = connect();
 app.use(connect.favicon('public/favicon.ico'));
 app.use(connect.query());
-app.use(connect.static(__dirname + '/assets', { maxAge: 86400000 }));
+app.use(connect.static(__dirname + '/public', { maxAge: 86400000 }));
 app.use('/wechat', wechat(config.wxToken, wechat.text(function (message, req, res) {
     var input = (message.Content || '').trim();
     //不是微信链接中止
-    if(WXMsg.isWXUrl(input))
-        return res.reply('暂时只支持分享公共账号的文章：在公共账号的文章选择“复制链接”，然后将该链接发送给本账号');
+    if(!WXMsg.isWXUrl(input))
+        return res.reply('暂时只支持分享公众账号的文章：在公众账号的文章页面中点右上角菜单，选择“复制链接”，将该链接发送给本账号即可分享到新浪微博');
     //取得用户名称相对应的token
     client.get(message.FromUserName, function (err, reply) {
         var token = reply.toString();
         if(token == ''){
-            return res.reply('请先授权：https://api.weibo.com/oauth2/authorize?client_id='
+            return res.reply('请先授权您的新浪微博：https://api.weibo.com/oauth2/authorize?client_id='
                 + config.appKey
                 +'&response_type=code&redirect_uri='+ config.redirect + '/'
                 + message.FromUserName);
         }
+        var proxy = new eventproxy();
         //得到文章和短链后发布微博
         proxy.all("article", "short", function (article, short) {
             if(!article.err && !short.err){
-                weibo.publishWeibo({
+                weibo.publishWeiboWithPic({
                     access_token : token,
-                    status : article.content.title+':'+article.content.desc+short.content,
+                    status : '「'+article.content.title+'」'+article.content.desc+short.content,
                     pic : article.content.pic
-                },function(error,response,body){
-                    var result = JSON.parse(body);
-                    if(result.error){
+                },function(){
+                    /*if(result.error){
                         res.reply('粗错了：' + esult.error);
                     } else{
                         res.reply('发布成功！');
-                    }
+                    }*/
                 });
+                res.reply('发布成功！');
             }else{
                 if(article.err) res.reply('粗错了：article'+article.err);
                 else res.reply('粗错了：short'+short.err);
             }
+            proxy = null;
         });
         //请求微信文章并解析
         WXMsg.getMsg(input,function(err,article){
@@ -74,15 +76,15 @@ app.use('/wechat', wechat(config.wxToken, wechat.text(function (message, req, re
     });
 
     }).image(function (message, req, res) {
-        res.reply('暂时只支持分享公共账号的文章：在公共账号的文章选择“复制链接”，然后将该链接发送给本账号');
+        res.reply('暂时只支持分享公众账号的文章：在公众账号的文章页面中点右上角菜单，选择“复制链接”，将该链接发送给本账号即可分享到新浪微博');
     }).event(function (message, req, res) {
         if (message.Event === 'subscribe') {
             // 用户添加时候的消息
             //请求微博授权，成功后返回带有用户ID和相应token的URl
-            res.reply('点击https://api.weibo.com/oauth2/authorize?client_id='+ config.appKey
+            res.reply('请先点击该链接https://api.weibo.com/oauth2/authorize?client_id='+ config.appKey
                      +'&response_type=code&redirect_uri='+ config.redirect + '/'
                      + message.FromUserName+
-                     '授权');
+                     '授权您的新浪微博');
         } else if (message.Event === 'unsubscribe') {
             console.log('leave');
         } else {
@@ -96,26 +98,18 @@ app.use('/', function (req, res) {
     if(path.length==2 && query.code){
         var user = path[1];
         //get access_token
-        request({
-            uri: 'https://api.weibo.com/oauth2/access_token',
-            method : 'POST',
-           qs : {
-               client_id : config.appKey,
-               client_secret : config.appSecret,
-               grant_type : "authorization_code",
-               redirect_uri : config.redirect,
-               code : query.code
-           }
-        },function(error,response,body){
+        weibo.getToken({
+            appKey : config.appKey,
+            appSecret : config.appSecret,
+            redirect : config.redirect,
+            code : query.code
+        },function(error,result){
             var content = ""
             if(!error){
-                var result = JSON.parse(body);
                 if(result.access_token){
                     //store user-token in redis
                     client.set(user,result.access_token);
-                    content = '<head><meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" name="viewport" />'
-                    +'<meta http-equiv="content-type" content="text/html;charset=utf-8" />'
-                    +'<title>wechat公共账号分享</title></head><body><p style="margin: 50 auto;width: 300px;">授权成功！现在您可以使用分享功能！</p></body>';
+                    content = fs.readFileSync(_dirname + '/public/sucess.html', 'utf8');
                 }else{
                     content = result.error;
                 }
@@ -128,10 +122,7 @@ app.use('/', function (req, res) {
 
     }else{
         res.writeHead(200);
-        res.end('<head><meta property="wb:webmaster" content="43ff0390664d778e" />'
-               +'<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" name="viewport" />'
-               +'<meta http-equiv="content-type" content="text/html;charset=utf-8" />'
-               +'<title>wechat公共账号分享</title></head><body><p style="margin: 50 auto;width: 300px;">关注微信公共账号「公共账号分享」可以分享公共账号或者其他微信文章到新浪微博</p></body>');
+        res.end(fs.readFileSync(_dirname + '/public/index.html', 'utf8'));
     }
 
 });
