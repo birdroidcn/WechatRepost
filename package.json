@@ -6,7 +6,8 @@
         "wechat" : "*",
         "redis"  : "*",
         "request": "*" ,
-        "eventproxy" : "*"
+        "eventproxy" : "*",
+        "form-data" : "*"
     },
     "engines": {
         "node": "0.8.x"
