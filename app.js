@@ -20,7 +20,6 @@ if(process.env.VCAP_SERVICES){
 client.on("error", function (err) {
     console.log("Error " + err);
 });
-//var input = 'http://mp.weixin.qq.com/mp/appmsg/show?__biz=MjM5NjA4MTAyMA==&appmsgid=10000385&itemidx=1';
 
 var app = connect();
 app.use(connect.favicon('public/favicon.ico'));
@@ -109,7 +108,7 @@ app.use('/', function (req, res) {
                 if(result.access_token){
                     //store user-token in redis
                     client.set(user,result.access_token);
-                    content = fs.readFileSync(_dirname + '/public/sucess.html', 'utf8');
+                    content = fs.readFileSync(__dirname + '/public/success.html', 'utf8');
                 }else{
                     content = result.error;
                 }
@@ -122,7 +121,7 @@ app.use('/', function (req, res) {
 
     }else{
         res.writeHead(200);
-        res.end(fs.readFileSync(_dirname + '/public/index.html', 'utf8'));
+        res.end(fs.readFileSync(__dirname + '/public/index.html', 'utf8'));
     }
 
 });
