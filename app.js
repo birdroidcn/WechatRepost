@@ -32,13 +32,14 @@ app.use('/wechat', wechat(config.wxToken, wechat.text(function (message, req, re
         return res.reply('暂时只支持分享公众账号的文章：在公众账号的文章页面中点右上角菜单，选择“复制链接”，将该链接发送给本账号即可分享到新浪微博');
     //取得用户名称相对应的token
     client.get(message.FromUserName, function (err, reply) {
-        var token = reply.toString();
-        if(token == ''){
+        if(err) return reply(err);
+        if(!reply){
             return res.reply('请先授权您的新浪微博：https://api.weibo.com/oauth2/authorize?client_id='
                 + config.appKey
                 +'&response_type=code&redirect_uri='+ config.redirect + '/'
                 + message.FromUserName);
         }
+        var token = reply.toString();
         var proxy = new eventproxy();
         //得到文章和短链后发布微博
         proxy.all("article", "short", function (article, short) {
@@ -78,12 +79,19 @@ app.use('/wechat', wechat(config.wxToken, wechat.text(function (message, req, re
         res.reply('暂时只支持分享公众账号的文章：在公众账号的文章页面中点右上角菜单，选择“复制链接”，将该链接发送给本账号即可分享到新浪微博');
     }).event(function (message, req, res) {
         if (message.Event === 'subscribe') {
-            // 用户添加时候的消息
-            //请求微博授权，成功后返回带有用户ID和相应token的URl
-            res.reply('请先点击该链接https://api.weibo.com/oauth2/authorize?client_id='+ config.appKey
-                     +'&response_type=code&redirect_uri='+ config.redirect + '/'
-                     + message.FromUserName+
-                     '授权您的新浪微博');
+            client.get(message.FromUserName, function (err, reply) {
+                if(err) return reply(err);
+                if(!reply){
+                    // 用户添加时候的消息
+                    //请求微博授权，成功后返回带有用户ID和相应token的URl
+                    res.reply('请先点击该链接https://api.weibo.com/oauth2/authorize?client_id='+ config.appKey
+                        +'&response_type=code&redirect_uri='+ config.redirect + '/'
+                        + message.FromUserName+
+                        '授权您的新浪微博');
+                }else{
+                    res.reply('欢迎回来！有不满您说哦~');
+                }
+            });
         } else if (message.Event === 'unsubscribe') {
             console.log('leave');
         } else {
@@ -108,6 +116,7 @@ app.use('/', function (req, res) {
                 if(result.access_token){
                     //store user-token in redis
                     client.set(user,result.access_token);
+                    client.expire(user, result.expires_in);//设置过期时间
                     content = fs.readFileSync(__dirname + '/public/success.html', 'utf8');
                 }else{
                     content = result.error;
