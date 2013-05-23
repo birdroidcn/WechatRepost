@@ -80,7 +80,7 @@ app.use('/wechat', wechat(config.wxToken, wechat.text(function (message, req, re
     }).event(function (message, req, res) {
         if (message.Event === 'subscribe') {
             client.get(message.FromUserName, function (err, reply) {
-                if(err) return reply(err);
+                if(err) return res.reply(err);
                 if(!reply){
                     // 用户添加时候的消息
                     //请求微博授权，成功后返回带有用户ID和相应token的URl
