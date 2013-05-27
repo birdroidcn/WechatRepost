@@ -3,7 +3,7 @@ var fs = require('fs');
 var connect = require('connect');
 var wechat = require('wechat');
 var redis = require("redis");//key-value  sys;
-var eventproxy = require('eventproxy');
+var async = require('async');
 var config = require('./lib/config.js');
 var WXMsg = require('./lib/WXMsg');
 var weibo = require('./lib/weibo');
@@ -40,38 +40,27 @@ app.use('/wechat', wechat(config.wxToken, wechat.text(function (message, req, re
                 + message.FromUserName);
         }
         var token = reply.toString();
-        var proxy = new eventproxy();
-        //得到文章和短链后发布微博
-        proxy.all("article", "short", function (article, short) {
-            if(!article.err && !short.err){
-                weibo.publishWeiboWithPic({
-                    access_token : token,
-                    status : '「'+article.content.title+'」'+article.content.desc+short.content,
-                    pic : article.content.pic
-                },function(){
-                    /*if(result.error){
-                        res.reply('粗错了：' + esult.error);
-                    } else{
-                        res.reply('发布成功！');
-                    }*/
-                });
-                res.reply('发布成功！');
-            }else{
-                if(article.err) res.reply('粗错了：article'+article.err);
-                else res.reply('粗错了：short'+short.err);
-            }
-            proxy = null;
-        });
-        //请求微信文章并解析
-        WXMsg.getMsg(input,function(err,article){
-            proxy.emit("article", {err:err,content:article});
-        });
-        //得到短链
-        weibo.getShorten({
-            access_token : token,
-            url : input
-        },function(err,short){
-            proxy.emit("short", {err:err,content:short});
+        //并行得到文章和短链后发布微博
+        async.parallel({
+            //请求微信文章并解析
+            article: WXMsg.getMsg.bind(null,input),
+            //得到短链
+            short: weibo.getShorten.bind(null,{ access_token : token,url : input})
+        },function(err, results){
+            if(err) return  res.reply('粗错了：'+err);
+            weibo.publishWeiboWithPic({
+                access_token : token,
+                status : '「'+results.article.title+'」'+results.article.desc+results.short,
+                pic : results.article.pic
+            },function(){
+                /*if(result.error){
+                 res.reply('粗错了：' + esult.error);
+                 } else{
+                 res.reply('发布成功！');
+                 }*/
+            });
+            res.reply('发布成功！');
+
         });
     });
 
