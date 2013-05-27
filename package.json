@@ -6,7 +6,7 @@
         "wechat" : "*",
         "redis"  : "*",
         "request": "*" ,
-        "eventproxy" : "*",
+        "async" : "*",
         "form-data" : "*"
     },
     "engines": {
